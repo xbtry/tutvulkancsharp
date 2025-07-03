@@ -1,6 +1,5 @@
 ﻿using Silk.NET.Maths;
 using Silk.NET.Windowing;
-using Monitor = System.Threading.Monitor;
 
 var app = new VulkanTutorialApp();
 app.Run();
