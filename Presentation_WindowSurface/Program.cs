@@ -1,9 +1,11 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Silk.NET.Core;
 using Silk.NET.Core.Native;
 using Silk.NET.Maths;
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.EXT;
+using Silk.NET.Vulkan.Extensions.KHR;
 using Silk.NET.Windowing;
 
 
@@ -13,10 +15,10 @@ app.Run();
 struct QueueFamilyIndices
 {
     public uint? GraphicsFamily { get; set; }
-
+    public uint? PresentFamily { get; set; }
     public bool IsComplete()
     {
-        return GraphicsFamily.HasValue;
+        return GraphicsFamily.HasValue && PresentFamily.HasValue;
     }
 }
 
@@ -29,7 +31,11 @@ unsafe class VulkanTutorialApp
     private Instance _instance;
     private PhysicalDevice _physicalDevice;
     private Device _device;
+    private KhrSurface? _khrSurface;
+    private SurfaceKHR _surface;
+    
     private Queue _graphicsQueue;
+    private Queue _presentQueue;
     
     private ExtDebugUtils? _debugUtils;
     private DebugUtilsMessengerEXT _debugMessenger;
@@ -74,6 +80,7 @@ unsafe class VulkanTutorialApp
     {
         CreateInstance();
         SetupDebugMessenger();
+        CreateSurface();
         PickPhysicalDevice();
         CreateLogicalDevice();
     }
@@ -91,6 +98,7 @@ unsafe class VulkanTutorialApp
             _debugUtils.DestroyDebugUtilsMessenger(_instance, _debugMessenger, null);
         }
         
+        _khrSurface!.DestroySurface(_instance, _surface, null);
         _vk!.DestroyInstance(_instance,null);
         _vk!.Dispose();
         _window?.Dispose();
@@ -155,6 +163,15 @@ unsafe class VulkanTutorialApp
         }
     }
 
+    private void CreateSurface()
+    {
+        if (!_vk!.TryGetInstanceExtension<KhrSurface>(_instance, out _khrSurface))
+        {
+            throw new NotSupportedException("KhrSurface is not supported");
+        }
+
+        _surface = _window!.VkSurface!.Create<AllocationCallbacks>(_instance.ToHandle(), null).ToSurface();
+    }
     private void PickPhysicalDevice()
     {
         var devices = _vk!.GetPhysicalDevices(_instance);
@@ -179,26 +196,37 @@ unsafe class VulkanTutorialApp
     private void CreateLogicalDevice()
     {
         var indices = FindQueueFamilies(_physicalDevice);
-        DeviceQueueCreateInfo queueCreateInfo = new DeviceQueueCreateInfo()
-        {
-            SType = StructureType.DeviceQueueCreateInfo,
-            QueueFamilyIndex = indices.GraphicsFamily!.Value,
-            QueueCount = 1
-        };
+
+        var uniqueQueueFamilies = new[] { indices.GraphicsFamily!.Value, indices.PresentFamily!.Value };
+        uniqueQueueFamilies = uniqueQueueFamilies.Distinct().ToArray();
+        
+        using var mem = GlobalMemory.Allocate(uniqueQueueFamilies.Length * sizeof(DeviceQueueCreateInfo));
+        var queueCreateInfos = (DeviceQueueCreateInfo*)Unsafe.AsPointer(ref mem.GetPinnableReference());
+
 
         float queuePriority = 1.0f;
-        queueCreateInfo.PQueuePriorities = &queuePriority;
+        for (int i = 0; i < uniqueQueueFamilies.Length; i++)
+        {
+            queueCreateInfos[i] = new DeviceQueueCreateInfo()
+            {
+                SType = StructureType.DeviceQueueCreateInfo,
+                QueueFamilyIndex = uniqueQueueFamilies[i],
+                QueueCount = 1,
+                PQueuePriorities = &queuePriority
+            };
+        }
 
         PhysicalDeviceFeatures deviceFeatures = new PhysicalDeviceFeatures();
 
         DeviceCreateInfo createInfo = new DeviceCreateInfo()
         {
             SType = StructureType.DeviceCreateInfo,
-            QueueCreateInfoCount = 1,
-            PQueueCreateInfos = &queueCreateInfo,
+            QueueCreateInfoCount = (uint)uniqueQueueFamilies.Length,
+            PQueueCreateInfos = queueCreateInfos,
             PEnabledFeatures = &deviceFeatures,
             EnabledLayerCount = 0
         };
+        
         if (enableValidationLayers)
         {
             createInfo.EnabledLayerCount = (uint)validationLayers.Length;
@@ -215,7 +243,7 @@ unsafe class VulkanTutorialApp
         }
 
         _vk!.GetDeviceQueue(_device, indices.GraphicsFamily!.Value, 0, out _graphicsQueue);
-
+        _vk!.GetDeviceQueue(_device, indices.PresentFamily!.Value, 0, out _presentQueue);
         if (enableValidationLayers)
         {
             SilkMarshal.Free((nint)createInfo.PpEnabledLayerNames);
@@ -247,6 +275,13 @@ unsafe class VulkanTutorialApp
                 indices.GraphicsFamily = i;
             }
 
+            _khrSurface!.GetPhysicalDeviceSurfaceSupport(device, i, _surface, out var presentSupport);
+
+            if (presentSupport)
+            {
+                indices.PresentFamily = i;
+            }
+            
             if (indices.IsComplete())
             {
                 break;
