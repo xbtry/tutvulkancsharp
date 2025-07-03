@@ -553,8 +553,8 @@ unsafe class VulkanTutorialApp
     {
         string projectDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", ".."));;
         ShaderCompiler.CompileShaders(Path.Combine(projectDir,"vshader.vert"),Path.Combine(projectDir,"fshader.frag"));
-       /* var vertShaderCode = File.ReadAllBytes("vshader.spv");
-        var fragShaderCode = File.ReadAllBytes("fshader.spv");
+        var vertShaderCode = File.ReadAllBytes(Path.Combine(projectDir,"vshader.spv"));
+        var fragShaderCode = File.ReadAllBytes(Path.Combine(projectDir,"fshader.spv"));
         
         var vertShaderModule = CreateShaderModule(vertShaderCode);
         var fragShaderModule = CreateShaderModule(fragShaderCode);
@@ -585,7 +585,7 @@ unsafe class VulkanTutorialApp
         _vk!.DestroyShaderModule(_device, vertShaderModule, null);
 
         SilkMarshal.Free((nint)vertShaderStageInfo.PName);
-        SilkMarshal.Free((nint)fragShaderStageInfo.PName); */
+        SilkMarshal.Free((nint)fragShaderStageInfo.PName); 
     }
 
     private ShaderModule CreateShaderModule(byte[] code)
